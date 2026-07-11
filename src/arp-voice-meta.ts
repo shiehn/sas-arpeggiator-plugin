@@ -8,6 +8,7 @@
 
 import type {
   GroupParseSpec,
+  PluginHost,
   ResolvedTrackGroup,
   GeneratorTrackState,
 } from '@signalsandsorcery/plugin-sdk';
@@ -48,6 +49,28 @@ export function arpGroupIsComplete(
   group: ResolvedTrackGroup<ArpVoiceMeta, GeneratorTrackState>,
 ): boolean {
   return group.members.some((m) => m.meta.voiceIndex === 0);
+}
+
+/**
+ * Stamp a NEWBORN track as a voice-group of ONE (anchor, voiceIndex 0) so the
+ * group header — with its voice/rate/split controls — exists BEFORE the first
+ * generation instead of appearing only after it (pre-fix, the first generate
+ * ran on defaults/hints and was a throwaway). Wired via the panel-core's
+ * `onTrackCreated` adapter hook (SDK 2.43.0).
+ *
+ * The CONFIG is deliberately NOT stamped: generation resolves
+ * stored > prompt hints > defaults, so pre-writing defaults would silently
+ * override hints like "3 voices". The header persists config only when the
+ * user touches a control — explicit beats hints beats defaults.
+ */
+export async function stampArpAnchor(
+  host: Pick<PluginHost, 'setSceneData'>,
+  sceneId: string,
+  keyFor: (dbId: string, suffix: string) => string,
+  dbId: string,
+): Promise<void> {
+  const meta: ArpVoiceMeta = { groupId: dbId, voiceIndex: 0, label: 'arp line' };
+  await host.setSceneData(sceneId, keyFor(dbId, ARP_VOICE_META_KEY), meta);
 }
 
 // --- reconcile planner (pure; the ensemble plugin's shape) ---

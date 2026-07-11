@@ -45,6 +45,7 @@ import {
   arpVoiceGroupSpec,
   normalizeRate,
   normalizeSplit,
+  stampArpAnchor,
   type ArpVoiceMeta,
 } from './src/arp-voice-meta';
 import {
@@ -92,7 +93,9 @@ function ArpVoiceGroupRow({
       }
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [host, scene, configKey]);
+    // members.length: a generation can rewrite the stored config (hints on the
+    // first run) — re-sync the header controls when the group's shape changes.
+  }, [host, scene, configKey, group.members.length]);
 
   const persistConfig = (next: { voiceCount: number; rate: ArpRate; split: ArpSplit }): void => {
     if (!scene) return;
@@ -282,6 +285,11 @@ function createArpGeneratorAdapter(host: PluginHost): GeneratorPanelAdapter<ArpV
       } catch {
         /* non-fatal */
       }
+    },
+    // Every newborn track is anchored as a voice-group of ONE so the header
+    // controls (voices / rate / split) are visible BEFORE the first generation.
+    onTrackCreated: async (handle, ctx) => {
+      await stampArpAnchor(host, ctx.activeSceneId, ctx.trackDataKey, handle.dbId);
     },
     // The core's generic path wants a system prompt; the real generation goes
     // through generateArp (schema-forced tools call), so this is only a sane

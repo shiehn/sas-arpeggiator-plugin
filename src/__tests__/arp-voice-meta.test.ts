@@ -4,6 +4,7 @@
  */
 
 import {
+  ARP_VOICE_META_KEY,
   asArpConfig,
   asArpVoiceMeta,
   arpGroupIsComplete,
@@ -11,6 +12,7 @@ import {
   normalizeSplit,
   parsePromptHints,
   planReconcile,
+  stampArpAnchor,
 } from '../arp-voice-meta';
 import type { ResolvedTrackGroup, GeneratorTrackState } from '@signalsandsorcery/plugin-sdk';
 import type { ArpVoiceMeta } from '../arp-voice-meta';
@@ -104,6 +106,27 @@ describe('planReconcile', () => {
     const shuffled = [members(3)[2], members(3)[0], members(3)[1]];
     const plan = planReconcile(shuffled, 3);
     expect(plan.reuse[0]).toEqual({ dbId: 'db-0', engineId: 'eng-0', bucketIndex: 0 });
+  });
+});
+
+describe('stampArpAnchor', () => {
+  it('anchors a newborn track as a complete voice-group of one — and does NOT stamp config', async () => {
+    const written = new Map<string, unknown>();
+    const host = {
+      setSceneData: jest.fn(async (_scene: string, key: string, value: unknown) => {
+        written.set(key, value);
+      }),
+    };
+    await stampArpAnchor(host, 'scene-1', (dbId, suffix) => `track:${dbId}:${suffix}`, 'db-a');
+
+    const meta = asArpVoiceMeta(written.get(`track:db-a:${ARP_VOICE_META_KEY}`));
+    expect(meta).toEqual({ groupId: 'db-a', voiceIndex: 0, label: 'arp line' });
+    // The singleton passes the completeness gate, so the header renders
+    // (controls BEFORE the first generation — the point of the stamp).
+    expect(meta!.voiceIndex).toBe(0);
+    // Config stays unstamped so prompt hints still beat defaults on the first
+    // generate (stored > hints > defaults).
+    expect(written.size).toBe(1);
   });
 });
 
