@@ -49,4 +49,4 @@ npm test        # jest — arp-core (parse/expand/split), voice-meta/reconcile, 
 npm run build   # tsup → dist (the app consumes dist via file: dep)
 ```
 
-Requires `@signalsandsorcery/plugin-sdk` ≥ 2.42.0 (panel-core: `GeneratorPanelShell`, group extensions, the Surge sound adapter).
+Requires `@signalsandsorcery/plugin-sdk` ≥ 2.43.0 (panel-core: `GeneratorPanelShell`, group extensions, the Surge sound adapter, and the `onTrackCreated` hook that puts the header controls up before the first generation).
