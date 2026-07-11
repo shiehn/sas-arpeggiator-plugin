@@ -1,0 +1,14 @@
+{
+  "id": "@signalsandsorcery/arp-generator",
+  "displayName": "Arpeggiator",
+  "version": "1.0.0",
+  "description": "Multi-voice arpeggiator: describe the character; the LLM designs ONE repeating arp cell (chord-degree steps, rests, accents, octave contour) and a mechanical expander tiles it over the scene's per-bar chords at 1/4, 1/8, or 1/16 notes — always chord tones, never off-key. The cell is then split vertically (pitch bands) or horizontally (alternating bars) across 1-4 voices, each on its own Surge XT track as one voice-group.",
+  "generatorType": "midi",
+  "main": "index.js",
+  "minHostVersion": "1.0.0",
+  "builtIn": true,
+  "capabilities": {
+    "requiresLLM": true,
+    "requiresSurgeXT": true
+  }
+}
