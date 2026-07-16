@@ -272,7 +272,11 @@ export async function generateArp(
       const member = memberByBucket.get(i)!;
       if (!member.isNew) continue;
       try {
-        const result = await host.shufflePreset(member.engineId, appliedNames);
+        // Pass the arp prompt so the host's semantic (vector-proximity)
+        // retrieval picks by timbre instead of random-within-category.
+        const result = await host.shufflePreset(member.engineId, appliedNames, {
+          description: prompt,
+        });
         appliedNames.push(result.presetName);
       } catch {
         /* non-fatal — default patch */
