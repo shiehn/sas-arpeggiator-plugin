@@ -27,6 +27,7 @@ import {
   createSurgeSoundAdapter,
   ConfirmDialog,
   parseLLMNoteResponse,
+  promptEnterToGenerate,
 } from '@signalsandsorcery/plugin-sdk';
 import {
   ARP_RATES,
@@ -55,6 +56,7 @@ import {
   DEFAULT_RATE,
   DEFAULT_SPLIT,
 } from './src/arp-generation';
+import { prepareVoiceRemoval } from './src/remove-voice';
 
 const ESTIMATED_GENERATION_MS = 15000; // one small cell call + a possible retry
 
@@ -108,6 +110,33 @@ function ArpVoiceGroupRow({
   const isGenerating = group.members.some((m) => m.track.isGenerating);
   const generateDisabled = isGenerating || !anchorTrack.prompt.trim();
 
+  // Per-voice delete (TrackRow's own ConfirmDialog gates the click): scene-data
+  // surgery first — config shrink, anchor handoff when voice 0 goes — then the
+  // track + key scrub. Abort on surgery failure so the group is never left
+  // half-re-pointed with the voice already gone.
+  const handleVoiceDelete = (member: (typeof group.members)[number]): void => {
+    void (async () => {
+      try {
+        if (scene) {
+          await prepareVoiceRemoval({
+            host,
+            sceneId: scene,
+            keyFor: ctx.services.trackDataKey,
+            members: group.members.map((gm) => ({ dbId: gm.dbId, meta: gm.meta })),
+            deletedDbId: member.dbId,
+          });
+        }
+      } catch (err) {
+        host.showToast('error', 'Failed to delete voice', err instanceof Error ? err.message : String(err));
+        return;
+      }
+      await ctx.deleteGroup(
+        [{ engineId: member.track.handle.id, dbId: member.dbId }],
+        [ARP_VOICE_META_KEY, ARP_CONFIG_KEY, 'prompt', 'soundHistory', 'role'],
+      );
+    })();
+  };
+
   return (
     <div
       data-testid={`arp-group-${group.groupId}`}
@@ -123,6 +152,10 @@ function ArpVoiceGroupRow({
           value={anchorTrack.prompt}
           placeholder="Describe the arp…"
           onChange={(e) => ctx.handlers.promptChange(anchorTrack.handle.id, e.target.value)}
+          onKeyDown={promptEnterToGenerate(
+            () => ctx.handlers.generate(anchorTrack.handle.id),
+            generateDisabled
+          )}
           className="flex-1 min-w-0 bg-sas-panel border border-sas-border rounded-sm px-2 py-0.5 text-xs text-sas-text placeholder:text-sas-muted/50 focus:border-sas-accent focus:outline-none"
           data-testid="arp-group-prompt"
         />
@@ -220,14 +253,14 @@ function ArpVoiceGroupRow({
           ctx.renderDefaultTrackRow(m.track, {
             // The prompt field shows the MECHANICAL voice label ("top band",
             // "even bars"); the arp intent lives on the group header (the
-            // anchor's prompt key). Voice count is owned by the header
-            // dropdown, so per-voice generate/delete/copy are off (the group
-            // owns those).
+            // anchor's prompt key). Per-voice generate/copy are off (the
+            // group owns those). Delete IS per-voice: it shrinks the group
+            // (and the stored voice count) instead of regenerating.
             prompt: m.meta.label || 'arp voice',
             onPromptChange: undefined,
             onGenerate: undefined,
             onCopy: undefined,
-            onDelete: undefined,
+            onDelete: () => handleVoiceDelete(m),
           }),
         )}
       </div>
