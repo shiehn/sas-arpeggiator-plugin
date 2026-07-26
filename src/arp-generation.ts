@@ -266,20 +266,49 @@ export async function generateArp(
       }
     }
 
-    // Presets for NEW voices only — reused voices keep the user's pick.
-    const appliedNames: string[] = [];
-    for (let i = 0; i < filled.length; i++) {
-      const member = memberByBucket.get(i)!;
-      if (!member.isNew) continue;
-      try {
-        // Pass the arp prompt so the host's semantic (vector-proximity)
-        // retrieval picks by timbre instead of random-within-category.
-        const result = await host.shufflePreset(member.engineId, appliedNames, {
-          description: prompt,
-        });
-        appliedNames.push(result.presetName);
-      } catch {
-        /* non-fatal — default patch */
+    // Presets: 🔗 Apply All groups share ONE sound; otherwise per-voice shuffle.
+    const linkSounds = stored?.linkSounds === true;
+    if (linkSounds && services.sound && host.getTrackSound) {
+      // Every voice carries the group's shared sound — the anchor's durable
+      // identity. First-ever generation (no persisted anchor preset yet):
+      // shuffle the ANCHOR once (the host persists it), then copy to the rest.
+      let snap = await host.getTrackSound(anchorDbId).catch(() => null);
+      if (!snap || snap.kind !== 'preset') {
+        try {
+          await host.shufflePreset(anchorTrack.handle.id, [], { description: prompt });
+          snap = await host.getTrackSound(anchorDbId).catch(() => null);
+        } catch {
+          /* non-fatal — voices fall back to default patches */
+        }
+      }
+      if (snap && snap.kind === 'preset') {
+        for (let i = 0; i < filled.length; i++) {
+          const member = memberByBucket.get(i)!;
+          // Reused voices keep their sound — it IS the shared sound.
+          if (!member.isNew) continue;
+          try {
+            await services.sound.copySnapshot(member.engineId, snap);
+          } catch {
+            /* non-fatal — default patch */
+          }
+        }
+      }
+    } else {
+      // Presets for NEW voices only — reused voices keep the user's pick.
+      const appliedNames: string[] = [];
+      for (let i = 0; i < filled.length; i++) {
+        const member = memberByBucket.get(i)!;
+        if (!member.isNew) continue;
+        try {
+          // Pass the arp prompt so the host's semantic (vector-proximity)
+          // retrieval picks by timbre instead of random-within-category.
+          const result = await host.shufflePreset(member.engineId, appliedNames, {
+            description: prompt,
+          });
+          appliedNames.push(result.presetName);
+        } catch {
+          /* non-fatal — default patch */
+        }
       }
     }
 
@@ -297,6 +326,9 @@ export async function generateArp(
       voiceCount,
       rate,
       split,
+      // Carry 🔗 Apply All through the rewrite — the validator strips unknown
+      // fields, so dropping it here would silently turn the toggle off.
+      ...(stored?.linkSounds === undefined ? {} : { linkSounds: stored.linkSounds }),
     });
 
     // Surplus voices: delete track + its group/soundHistory keys.

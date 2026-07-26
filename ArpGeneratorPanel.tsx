@@ -26,6 +26,7 @@ import {
   useGeneratorPanelCore,
   createSurgeSoundAdapter,
   ConfirmDialog,
+  GroupCollapseChevron,
   parseLLMNoteResponse,
   promptEnterToGenerate,
 } from '@signalsandsorcery/plugin-sdk';
@@ -81,6 +82,7 @@ function ArpVoiceGroupRow({
   const [voiceCount, setVoiceCount] = useState<number>(DEFAULT_VOICE_COUNT);
   const [rate, setRate] = useState<ArpRate>(DEFAULT_RATE);
   const [split, setSplit] = useState<ArpSplit>(DEFAULT_SPLIT);
+  const [linkSounds, setLinkSounds] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
@@ -92,6 +94,7 @@ function ArpVoiceGroupRow({
         setVoiceCount(Math.max(ARP_MIN_VOICES, Math.min(ARP_MAX_VOICES, cfg.voiceCount)));
         setRate(normalizeRate(cfg.rate, DEFAULT_RATE));
         setSplit(normalizeSplit(cfg.split, DEFAULT_SPLIT));
+        setLinkSounds(cfg.linkSounds === true);
       }
     }).catch(() => {});
     return () => { cancelled = true; };
@@ -99,7 +102,12 @@ function ArpVoiceGroupRow({
     // first run) — re-sync the header controls when the group's shape changes.
   }, [host, scene, configKey, group.members.length]);
 
-  const persistConfig = (next: { voiceCount: number; rate: ArpRate; split: ArpSplit }): void => {
+  const persistConfig = (next: {
+    voiceCount: number;
+    rate: ArpRate;
+    split: ArpSplit;
+    linkSounds: boolean;
+  }): void => {
     if (!scene) return;
     void host.setSceneData(scene, configKey, next).catch(() => {});
   };
@@ -132,7 +140,7 @@ function ArpVoiceGroupRow({
       }
       await ctx.deleteGroup(
         [{ engineId: member.track.handle.id, dbId: member.dbId }],
-        [ARP_VOICE_META_KEY, ARP_CONFIG_KEY, 'prompt', 'soundHistory', 'role'],
+        [ARP_VOICE_META_KEY, ARP_CONFIG_KEY, 'prompt', 'soundHistory', 'role', 'groupUi'],
       );
     })();
   };
@@ -144,6 +152,7 @@ function ArpVoiceGroupRow({
       style={{ borderLeftColor: '#06B6D4', borderLeftWidth: '3px' }}
     >
       <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-sas-border">
+        <GroupCollapseChevron collapsed={ctx.collapsed} onToggle={ctx.onToggleCollapse} what="arp" />
         <span className="text-[9px] uppercase tracking-wide text-sas-muted whitespace-nowrap">
           Arp · {group.members.length} {group.members.length === 1 ? 'voice' : 'voices'}
         </span>
@@ -164,7 +173,7 @@ function ArpVoiceGroupRow({
           onChange={(e) => {
             const next = parseInt(e.target.value, 10);
             setVoiceCount(next);
-            persistConfig({ voiceCount: next, rate, split });
+            persistConfig({ voiceCount: next, rate, split, linkSounds });
           }}
           title="Voices"
           className="text-xs bg-sas-panel border border-sas-border rounded-sm px-1 py-0.5 text-sas-text"
@@ -179,7 +188,7 @@ function ArpVoiceGroupRow({
           onChange={(e) => {
             const next = e.target.value as ArpRate;
             setRate(next);
-            persistConfig({ voiceCount, rate: next, split });
+            persistConfig({ voiceCount, rate: next, split, linkSounds });
           }}
           title="Rate"
           className="text-xs bg-sas-panel border border-sas-border rounded-sm px-1 py-0.5 text-sas-text"
@@ -194,7 +203,7 @@ function ArpVoiceGroupRow({
           onChange={(e) => {
             const next = e.target.value as ArpSplit;
             setSplit(next);
-            persistConfig({ voiceCount, rate, split: next });
+            persistConfig({ voiceCount, rate, split: next, linkSounds });
           }}
           title="Split — vertical: pitch bands per voice; horizontal: alternating bars per voice"
           className="text-xs bg-sas-panel border border-sas-border rounded-sm px-1 py-0.5 text-sas-text"
@@ -204,6 +213,26 @@ function ArpVoiceGroupRow({
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
+        <button
+          onClick={() => {
+            const next = !linkSounds;
+            setLinkSounds(next);
+            persistConfig({ voiceCount, rate, split, linkSounds: next });
+          }}
+          title={
+            linkSounds
+              ? 'Apply All is ON — Shuffle, History restore and Import on any voice apply the same sound to every voice'
+              : 'Apply All — apply sound changes (Shuffle / History / Import) on any voice to all voices together'
+          }
+          className={`px-1.5 py-0.5 text-[10px] font-bold rounded-sm border transition-colors whitespace-nowrap ${
+            linkSounds
+              ? 'bg-sas-accent/20 border-sas-accent text-sas-accent'
+              : 'bg-sas-panel border-sas-border text-sas-muted hover:border-sas-accent'
+          }`}
+          data-testid="arp-link-sounds"
+        >
+          🔗 All
+        </button>
         <button
           onClick={() => ctx.handlers.generate(anchorTrack.handle.id)}
           disabled={generateDisabled}
@@ -248,22 +277,28 @@ function ArpVoiceGroupRow({
         </button>
       </div>
 
-      <div className="p-1 space-y-1">
-        {group.members.map((m) =>
-          ctx.renderDefaultTrackRow(m.track, {
-            // The prompt field shows the MECHANICAL voice label ("top band",
-            // "even bars"); the arp intent lives on the group header (the
-            // anchor's prompt key). Per-voice generate/copy are off (the
-            // group owns those). Delete IS per-voice: it shrinks the group
-            // (and the stored voice count) instead of regenerating.
-            prompt: m.meta.label || 'arp voice',
-            onPromptChange: undefined,
-            onGenerate: undefined,
-            onCopy: undefined,
-            onDelete: () => handleVoiceDelete(m),
-          }),
-        )}
-      </div>
+      {!ctx.collapsed && (
+        <div className="p-1 space-y-1">
+          {group.members.map((m) =>
+            ctx.renderDefaultTrackRow(m.track, {
+              // The prompt field shows the MECHANICAL voice label ("top band",
+              // "even bars"); the arp intent lives on the group header (the
+              // anchor's prompt key). Per-voice generate/copy are off (the
+              // group owns those). Delete IS per-voice: it shrinks the group
+              // (and the stored voice count) instead of regenerating.
+              prompt: m.meta.label || 'arp voice',
+              onPromptChange: undefined,
+              onGenerate: undefined,
+              onCopy: undefined,
+              onDelete: () => handleVoiceDelete(m),
+              linkedSoundHint:
+                linkSounds && group.members.length > 1
+                  ? `🔗 Sound changes apply to all ${group.members.length} parts`
+                  : undefined,
+            }),
+          )}
+        </div>
+      )}
 
       {confirmDelete && (
         <ConfirmDialog
@@ -275,7 +310,7 @@ function ArpVoiceGroupRow({
             setConfirmDelete(false);
             void ctx.deleteGroup(
               group.members.map((m) => ({ engineId: m.track.handle.id, dbId: m.dbId })),
-              [ARP_VOICE_META_KEY, ARP_CONFIG_KEY, 'prompt', 'soundHistory', 'role'],
+              [ARP_VOICE_META_KEY, ARP_CONFIG_KEY, 'prompt', 'soundHistory', 'role', 'groupUi'],
             );
           }}
           onCancel={() => setConfirmDelete(false)}
@@ -335,7 +370,30 @@ function createArpGeneratorAdapter(host: PluginHost): GeneratorPanelAdapter<ArpV
         bars: 4,
       }),
     parseNotesResponse: parseLLMNoteResponse,
-    sound: surgeSound,
+    sound: {
+      ...surgeSound,
+      // 🔗 Apply All: ALL linked siblings of a voice, or null when the
+      // group's toggle is OFF / the track is loose. The core filters per
+      // broadcast kind (preset blobs go only to same-instrument siblings;
+      // Pick-tab instrument swaps go to everyone).
+      broadcastTargets: async (track, services) => {
+        const scene = services.activeSceneId;
+        if (!scene) return null;
+        const groups = services.resolvedGroups<ArpVoiceMeta>(ARP_VOICE_META_KEY);
+        const group = groups.find((g) => g.members.some((m) => m.dbId === track.handle.dbId));
+        if (!group || group.members.length < 2) return null;
+        const anchor = group.members.find((m) => m.meta.voiceIndex === 0) ?? group.members[0];
+        const raw = await host
+          .getSceneData(scene, services.trackDataKey(anchor.dbId, ARP_CONFIG_KEY))
+          .catch(() => null);
+        if (asArpConfig(raw)?.linkSounds !== true) return null;
+        return group.members.map((m) => ({
+          engineId: m.track.handle.id,
+          dbId: m.dbId,
+          label: m.meta.label || m.track.handle.name,
+        }));
+      },
+    },
     shuffle: {
       shuffle: async (track, excludeNames) => {
         const result = await host.shufflePreset(track.handle.id, excludeNames, {

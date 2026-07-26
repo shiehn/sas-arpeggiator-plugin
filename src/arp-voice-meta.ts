@@ -115,6 +115,13 @@ export interface ArpConfig {
   voiceCount: number;
   rate: string;
   split: string;
+  /**
+   * 🔗 Apply All: preset-level sound changes (shuffle / History restore /
+   * Import) on ANY voice propagate the same sound to every voice, and
+   * regeneration keeps all voices on the group's shared sound. Absent =
+   * false (the historical per-voice behavior).
+   */
+  linkSounds?: boolean;
 }
 
 export function asArpConfig(val: unknown): ArpConfig | null {
@@ -123,7 +130,9 @@ export function asArpConfig(val: unknown): ArpConfig | null {
   if (typeof c.voiceCount !== 'number' || typeof c.rate !== 'string' || typeof c.split !== 'string') {
     return null;
   }
-  return { voiceCount: c.voiceCount, rate: c.rate, split: c.split };
+  const config: ArpConfig = { voiceCount: c.voiceCount, rate: c.rate, split: c.split };
+  if (typeof c.linkSounds === 'boolean') config.linkSounds = c.linkSounds;
+  return config;
 }
 
 /**
