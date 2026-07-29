@@ -27,7 +27,12 @@ import type {
   LLMToolUseRequest,
   LLMFunctionDeclaration,
 } from '@signalsandsorcery/plugin-sdk';
-import { formatConcurrentTracks } from '@signalsandsorcery/plugin-sdk';
+import {
+  formatConcurrentTracks,
+  panelClipEndSeconds,
+  panelMeter,
+  panelQuarterNotesPerBar,
+} from '@signalsandsorcery/plugin-sdk';
 import {
   buildArpSystemPrompt,
   buildSubmitArpParameters,
@@ -110,6 +115,10 @@ export async function generateArp(
   const musical = await host.getMusicalContext();
   const bars = musical.bars > 0 ? musical.bars : 4;
   const bpm = musical.bpm > 0 ? musical.bpm : 120;
+  // Scene meter (P8b): '4/4' for absent/malformed values — every derived
+  // number below then reproduces the legacy 4/4 arithmetic exactly.
+  const meter = panelMeter(musical);
+  const qnPerBar = panelQuarterNotesPerBar(musical);
 
   let concurrentBlock = '';
   try {
@@ -133,13 +142,16 @@ export async function generateArp(
     'Musical Context:',
     `- Key: ${musical.key} ${musical.mode}`,
     `- BPM: ${bpm}`,
-    `- Bars: ${bars} (clip = ${bars * 4} quarter-note beats)`,
+    // 4/4 renders `bars * 4` exactly (byte-identity); the meter line only
+    // appears on non-4/4 scenes.
+    `- Bars: ${bars} (clip = ${bars * qnPerBar} quarter-note beats)`,
+    meter !== '4/4' ? `- Time signature: ${meter} (each bar = ${qnPerBar} quarter notes)` : null,
     musical.genre ? `- Genre: ${musical.genre}` : null,
     `- Chord Progression: ${chordText}`,
     musical.contractPrompt ? `- Scene Contract: ${musical.contractPrompt}` : null,
   ].filter(Boolean).join('\n');
 
-  const systemPrompt = buildArpSystemPrompt({ voiceCount, rate, split, bars });
+  const systemPrompt = buildArpSystemPrompt({ voiceCount, rate, split, bars, timeSignature: meter });
   const baseUser = `${contextText}\n\n${concurrentBlock ? `${concurrentBlock}\n\n` : ''}User request: "${anchorPrompt}"`;
 
   // ── the cell call (+ at most ONE plain retry on an unusable reply) ────
@@ -186,7 +198,9 @@ export async function generateArp(
 
   // ── mechanical expansion + split ───────────────────────────────────────
   const scalePcs = scalePcsFor(musical.key, musical.mode) ?? undefined;
-  const { chordRootPcAtBar, chordPcsAtBar } = chordLookupsFromTiming(musical.chordProgression);
+  // Bar windows in the scene meter (4/4 = the legacy bar*4 grid) — the arp
+  // re-roots per BAR, so boundaries are bars×qn, never denominator slots.
+  const { chordRootPcAtBar, chordPcsAtBar } = chordLookupsFromTiming(musical.chordProgression, meter);
   const notes = expandPattern(pattern, {
     bars,
     stepsPerBeat: STEPS_PER_BEAT[rate],
@@ -194,6 +208,7 @@ export async function generateArp(
     chordPcsAtBar,
     scalePcs,
     fallbackRootPc: notePcFor(musical.key) ?? 0,
+    quarterNotesPerBar: qnPerBar,
   });
   if (notes.length === 0) {
     throw new Error('The arp cell expanded to no notes — try a denser pattern.');
@@ -225,10 +240,10 @@ export async function generateArp(
     );
   }
 
-  const secondsPerBeat = 60 / bpm;
   const clipFor = (voiceNotes: ArpNote[]): MidiClipData => ({
     startTime: 0,
-    endTime: bars * 4 * secondsPerBeat,
+    // Scene-loop span in the scene meter (4/4 = the legacy bars*4*60/bpm).
+    endTime: panelClipEndSeconds({ bars, bpm, timeSignature: meter }),
     tempo: bpm,
     notes: voiceNotes.map((n) => ({
       pitch: n.pitch,
@@ -367,6 +382,7 @@ export async function generateArp(
     editNotes: clipFor(filled[0].notes).notes,
     editBars: bars,
     editBpm: bpm,
+    editBeatsPerBar: qnPerBar,
   }));
   services.markEditLoaded(anchorTrack.handle.id);
   host.showToast(

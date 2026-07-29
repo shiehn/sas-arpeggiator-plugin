@@ -9,7 +9,31 @@
  * stream across 1-4 voices either vertically (pitch bands — the "1" notes on
  * one patch, the "3-5-3" notes on another) or horizontally (alternating bars —
  * bar 1 on one patch, bar 2 on the next).
+ *
+ * METER (P8b multi-time-signature): the grid is parameterized on the scene
+ * meter's QUARTER notes per bar (default 4 — omitted call sites reproduce
+ * the legacy 4/4 arithmetic bit-for-bit). STEPS_PER_BEAT stays per QUARTER
+ * note in every meter (BPM counts quarter notes), so
+ * `stepsPerBar = STEPS_PER_BEAT[rate] × quarterNotesPerBar`.
+ *
+ * FRACTIONAL-STEP AUDIT (each rate × the curated meters):
+ *   - /4 meters (2/4..7/4): qnPerBar integer → integer steps at all rates.
+ *   - /8 meters at 1/8 (×2) and 1/16 (×4): 5/8→5/10, 6/8→6/12, 7/8→7/14,
+ *     9/8→9/18, 12/8→12/24 — always integer (den 8 cancels the ×2).
+ *   - ODD-numerator /8 meters at the 1/4 rate are the ONLY fractional case:
+ *     5/8→2.5, 7/8→3.5, 9/8→4.5 steps per bar. The quarter grid genuinely
+ *     does not tile those bars, so the grid stays CONTINUOUS (steps every
+ *     quarter note from clip start, crossing barlines); per-step re-rooting
+ *     still uses the REAL bar (floor(startBeat / qnPerBar)). Scene bar
+ *     counts are even (ALLOWED_SCENE_BARS), making the step TOTAL integral
+ *     in practice; `Math.round` + an end-of-clip duration clamp guard the
+ *     hand-called odd-bar case (documented at both sites).
+ * Bar boundaries stay FP-exact: every startBeat and qnPerBar is a dyadic
+ * rational (num·4/den, den ∈ {2,4,8,16}), so boundary quotients are exact
+ * integers — no epsilon needed on the floor().
  */
+
+import { formatPluginMeterGuidance, tryParseTimeSignature } from '@signalsandsorcery/plugin-sdk';
 
 // ============================================================================
 // Domains
@@ -156,10 +180,39 @@ export interface ArpPromptOptions {
   rate: ArpRate;
   split: ArpSplit;
   bars: number;
+  /**
+   * Scene meter "N/D" (P8b). Omitted / '4/4' / unparseable → the prompt is
+   * BYTE-IDENTICAL to the legacy 4/4 text (pinned by
+   * __tests__/meter-prompt.test.ts). Any other meter derives the real
+   * steps-per-bar figure, a meter-true cycle example, and appends the SDK's
+   * per-family meter rules.
+   */
+  timeSignature?: string;
 }
 
 export function buildArpSystemPrompt(opts: ArpPromptOptions): string {
-  const stepsPerBar = STEPS_PER_BEAT[opts.rate] * 4;
+  const parsedMeter = opts.timeSignature ? tryParseTimeSignature(opts.timeSignature) : null;
+  const meter = parsedMeter && opts.timeSignature !== '4/4' ? opts.timeSignature! : '4/4';
+  const qnPerBar = meter === '4/4' ? 4 : parsedMeter!.quarterNotesPerBar;
+  const stepsPerBar = STEPS_PER_BEAT[opts.rate] * qnPerBar;
+  // Fractional only for odd-numerator /8 meters at the 1/4 rate (see the
+  // header audit) — there the quarter grid crosses barlines, so the prompt
+  // states the honest 2-bar cycle instead of a false per-bar figure.
+  const wholeSteps = Number.isInteger(stepsPerBar);
+  const gridLine =
+    meter === '4/4'
+      ? `Design ONE repeating arp cell on a ${opts.rate}-note grid (${stepsPerBar} steps per 4/4 bar).`
+      : wholeSteps
+        ? `Design ONE repeating arp cell on a ${opts.rate}-note grid (${stepsPerBar} steps per bar of ${meter}).`
+        : `Design ONE repeating arp cell on a ${opts.rate}-note grid (${stepsPerBar * 2} steps per 2 bars of ${meter} — the ${opts.rate} grid crosses barlines in this meter).`;
+  const cycleLine =
+    meter === '4/4'
+      ? 'Match the requested character (speed feel, density, contour, mood). Prefer cell lengths that create interesting cycles against the bar (e.g. a 6-step cell on a 16-step bar rotates).'
+      : wholeSteps
+        ? `Match the requested character (speed feel, density, contour, mood). Prefer cell lengths that create interesting cycles against the bar (e.g. a ${stepsPerBar % 6 === 0 ? 5 : 6}-step cell on a ${stepsPerBar}-step bar rotates).`
+        : `Match the requested character (speed feel, density, contour, mood). Prefer cell lengths that create interesting cycles against the ${stepsPerBar * 2}-step 2-bar span (cell lengths that do not divide ${stepsPerBar * 2} rotate).`;
+  // '' for 4/4 — the byte-identity contract.
+  const meterRules = formatPluginMeterGuidance(meter);
   const splitText =
     opts.voiceCount <= 1
       ? 'The cell plays as a single voice.'
@@ -170,7 +223,7 @@ export function buildArpSystemPrompt(opts: ArpPromptOptions): string {
   return [
     'You are an arpeggiator pattern designer for a music production tool.',
     '',
-    `Design ONE repeating arp cell on a ${opts.rate}-note grid (${stepsPerBar} steps per 4/4 bar).`,
+    gridLine,
     `Return it via the ${SUBMIT_ARP_TOOL_NAME} function ONLY — no prose.`,
     '',
     'The contract:',
@@ -183,7 +236,14 @@ export function buildArpSystemPrompt(opts: ArpPromptOptions): string {
     '',
     splitText,
     '',
-    'Match the requested character (speed feel, density, contour, mood). Prefer cell lengths that create interesting cycles against the bar (e.g. a 6-step cell on a 16-step bar rotates).',
+    cycleLine,
+    ...(meterRules
+      ? [
+          '',
+          meterRules,
+          '- The accent pattern (velocity) should follow THIS meter\'s group starts above, not a 4/4 backbeat; rests placed at group boundaries keep the meter audible.',
+        ]
+      : []),
   ].join('\n');
 }
 
@@ -212,6 +272,14 @@ export interface ExpandOptions {
   fallbackRootPc?: number;
   /** MIDI pitch the octave-0 root folds toward. Default ARP_HOME_PITCH. */
   homePitch?: number;
+  /**
+   * QUARTER notes per bar of the scene meter (panel-core's
+   * `panelQuarterNotesPerBar`): 4/4 → 4, 6/8 → 3, 7/8 → 3.5. Bar
+   * boundaries for chord re-rooting (and the horizontal split's bar index)
+   * come from THIS — bars×qn boundaries, never denominator-slot counts.
+   * Omitted/invalid → 4, the legacy 4/4 grid.
+   */
+  quarterNotesPerBar?: number;
 }
 
 /** Nearest pitch with the given pitch class to `center` (ties resolve upward). */
@@ -249,10 +317,19 @@ export function chordToneOffsets(rootPc: number, pcs: Set<number> | null, scaleP
  * pattern in, in-harmony notes out.
  */
 export function expandPattern(pattern: ArpPattern, opts: ExpandOptions): ArpNote[] {
-  const beatsPerBar = 4;
+  const beatsPerBar =
+    opts.quarterNotesPerBar !== undefined &&
+    Number.isFinite(opts.quarterNotesPerBar) &&
+    opts.quarterNotesPerBar > 0
+      ? opts.quarterNotesPerBar
+      : 4;
   const home = opts.homePitch ?? ARP_HOME_PITCH;
   const stepDur = 1 / opts.stepsPerBeat;
-  const totalSteps = opts.bars * beatsPerBar * opts.stepsPerBeat;
+  // Integral for every curated meter × rate with the platform's even scene
+  // bar counts (header audit); Math.round guards the hand-called odd-bar ×
+  // odd-/8-meter × 1/4-rate case, where the true product is n+0.5.
+  const totalSteps = Math.round(opts.bars * beatsPerBar * opts.stepsPerBeat);
+  const clipEnd = opts.bars * beatsPerBar;
   const cell = pattern.steps;
   const notes: ArpNote[] = [];
 
@@ -260,6 +337,9 @@ export function expandPattern(pattern: ArpPattern, opts: ExpandOptions): ArpNote
     const step = cell[s % cell.length];
     if (step.rest) continue;
     const startBeat = s * stepDur;
+    if (startBeat >= clipEnd) break; // rounded-up final step starts past the clip
+    // Exact at bar boundaries: startBeat and beatsPerBar are dyadic
+    // rationals, so boundary quotients are exact integers (header note).
     const bar = Math.floor(startBeat / beatsPerBar);
     const rootPc = opts.chordRootPcAtBar(bar) ?? opts.fallbackRootPc ?? 0;
     const offsets = chordToneOffsets(rootPc, opts.chordPcsAtBar(bar), opts.scalePcs);
@@ -271,7 +351,9 @@ export function expandPattern(pattern: ArpPattern, opts: ExpandOptions): ArpNote
     notes.push({
       pitch,
       startBeat,
-      durationBeats: stepDur * ARP_GATE,
+      // The clamp binds only when the grid does not tile the bar (fractional
+      // steps-per-bar meters) — the last sounding step must end at the clip.
+      durationBeats: Math.min(stepDur * ARP_GATE, clipEnd - startBeat),
       velocity: step.velocity,
       bar,
     });

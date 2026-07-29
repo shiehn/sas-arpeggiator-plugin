@@ -7,6 +7,8 @@
  * expansion degrades gracefully rather than mangling exotic chords.
  */
 
+import { barsToQn, tryParseTimeSignature } from '@signalsandsorcery/plugin-sdk';
+
 const NOTE_TO_PC: Record<string, number> = {
   C: 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, F: 5,
   'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11,
@@ -85,11 +87,15 @@ export function scalePcsFor(key: string, mode: string): Set<number> | null {
 
 /**
  * Build per-bar chord lookups from the host's chord timing
- * (`{symbol, startQn, endQn}`, quarter-note beats, 4/4 grid). Bars without
- * a chord resolve to null.
+ * (`{symbol, startQn, endQn}`, quarter-note beats — scene-truthful in every
+ * meter). `timeSignature` (P8b) sizes the bar window: bar N starts at
+ * `barsToQn(N, meter)` and spans one bar of that meter. Omitted / '4/4' /
+ * unparseable meters reproduce the legacy `bar * 4` grid exactly. Bars
+ * without a chord resolve to null.
  */
 export function chordLookupsFromTiming(
-  timing: ReadonlyArray<{ symbol: string; startQn: number; endQn: number }>
+  timing: ReadonlyArray<{ symbol: string; startQn: number; endQn: number }>,
+  timeSignature: string = '4/4'
 ): {
   chordRootPcAtBar: (bar: number) => number | null;
   chordPcsAtBar: (bar: number) => Set<number> | null;
@@ -98,14 +104,19 @@ export function chordLookupsFromTiming(
     .map((t) => ({ ...t, chord: parseChordSymbol(t.symbol) }))
     .filter((t): t is typeof t & { chord: ParsedChordSymbol } => t.chord !== null);
 
+  // Malformed meters degrade to 4/4 (the legacy grid) instead of throwing —
+  // the same gate panel-core's panelMeter applies.
+  const meter = tryParseTimeSignature(timeSignature) ? timeSignature : '4/4';
+  const qnPerBar = barsToQn(1, meter);
+
   const atBar = (bar: number): ParsedChordSymbol | null => {
-    const beat = bar * 4;
+    const beat = barsToQn(bar, meter);
     for (const t of parsed) {
       if (t.startQn <= beat && beat < t.endQn) return t.chord;
     }
     // Fall back to whichever chord SOUNDS during the bar (mid-bar changes).
     for (const t of parsed) {
-      if (t.startQn < beat + 4 && t.endQn > beat) return t.chord;
+      if (t.startQn < beat + qnPerBar && t.endQn > beat) return t.chord;
     }
     return null;
   };
