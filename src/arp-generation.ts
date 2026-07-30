@@ -73,6 +73,27 @@ export const ARP_TEMPERATURE = 0.9;
 /** Every arp voice carries the canonical 'arp' role (→ synths-hi/low presets). */
 export const ARP_TRACK_ROLE = 'arp';
 
+/**
+ * Sibling roles pinned as budget-exempt REFERENCE tracks before the cell
+ * call (drum-interplay follow-on, 2026-07-30). Hat-family tracks define the
+ * subdivision grid the interlock prompt line writes against; kick/808/bass
+ * are the groove anchors that would otherwise be auto-pinned by the host —
+ * explicit pins suppress that auto-pin, so they must be listed here. Both
+ * raw drum-folder roles (drum panel: 'hat-closed', 'kick') and the coarse
+ * canonical roles (agent Path B: 'hats', 'kicks') are matched, lowercased.
+ */
+export const ARP_INTERLOCK_PIN_ROLES: ReadonlySet<string> = new Set([
+  'hat-closed',
+  'hat-open',
+  'cymbal-ride',
+  'hats',
+  'kick',
+  'kicks',
+  '808',
+  '808s',
+  'bass',
+]);
+
 interface FilledVoice {
   voiceIndex: number;
   label: string;
@@ -122,9 +143,33 @@ export async function generateArp(
 
   let concurrentBlock = '';
   try {
-    const genCtx = await host.getGenerationContext(anchorTrack.handle.id);
     // Don't make the model write "around" its own previous voices.
     const groupDbIds = new Set((existingGroup?.members ?? []).map((m) => m.dbId));
+    groupDbIds.add(anchorDbId);
+    // Pin the grid-defining siblings (hats/ride) as budget-exempt REFERENCE
+    // tracks — dense 16th hats are exactly the high-note-count, low-priority
+    // tracks the cross-track budget drops first, and the interlock prompt
+    // line needs their onsets present. The kick/808/bass anchors ride along
+    // because EXPLICIT pins fully suppress the host's groove-leader auto-pin.
+    let pinTrackDbIds: string[] = [];
+    try {
+      const sceneTracks = (await host.listSceneTracks?.()) ?? [];
+      pinTrackDbIds = sceneTracks
+        .filter(
+          (t) =>
+            t.hasMidi &&
+            !groupDbIds.has(t.dbId) &&
+            t.role !== undefined &&
+            ARP_INTERLOCK_PIN_ROLES.has(t.role.trim().toLowerCase())
+        )
+        .map((t) => t.dbId);
+    } catch {
+      /* pin discovery is best-effort — auto-pin covers the no-pin path */
+    }
+    const genCtx =
+      pinTrackDbIds.length > 0
+        ? await host.getGenerationContext(anchorTrack.handle.id, { pinTrackDbIds })
+        : await host.getGenerationContext(anchorTrack.handle.id);
     concurrentBlock = formatConcurrentTracks({
       ...genCtx,
       concurrentTracks: genCtx.concurrentTracks.filter(

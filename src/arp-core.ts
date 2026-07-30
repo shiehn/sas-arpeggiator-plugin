@@ -237,6 +237,11 @@ export function buildArpSystemPrompt(opts: ArpPromptOptions): string {
     splitText,
     '',
     cycleLine,
+    '',
+    // Drum-interplay follow-on (2026-07-30): the hat/ride layers define the
+    // scene's subdivision grid; the generation path pins them as REFERENCE
+    // tracks so this line always has data to act on.
+    "If hat or ride tracks are listed in the context, interlock with their grid: they define the scene's subdivision feel. Either ride their subdivision exactly (accents aligned with their accents) or fill their gaps (accents where they rest, rest:true where their accents hit) — never drift unrelated to the hat grid.",
     ...(meterRules
       ? [
           '',

@@ -16,7 +16,9 @@ The contract:
 
 The cell plays as a single voice.
 
-Match the requested character (speed feel, density, contour, mood). Prefer cell lengths that create interesting cycles against the bar (e.g. a 6-step cell on a 16-step bar rotates)."
+Match the requested character (speed feel, density, contour, mood). Prefer cell lengths that create interesting cycles against the bar (e.g. a 6-step cell on a 16-step bar rotates).
+
+If hat or ride tracks are listed in the context, interlock with their grid: they define the scene's subdivision feel. Either ride their subdivision exactly (accents aligned with their accents) or fill their gaps (accents where they rest, rest:true where their accents hit) — never drift unrelated to the hat grid."
 `;
 
 exports[`buildArpSystemPrompt — 4/4 byte identity 1/8 horizontal 2 voices (snapshot pin) 1`] = `
@@ -35,7 +37,9 @@ The contract:
 
 The cell will be split HORIZONTALLY across 2 voices: whole bars alternate between instruments (bar 1 on voice 1, bar 2 on voice 2, …). Design a cell that stays interesting when its timbre changes each bar.
 
-Match the requested character (speed feel, density, contour, mood). Prefer cell lengths that create interesting cycles against the bar (e.g. a 6-step cell on a 16-step bar rotates)."
+Match the requested character (speed feel, density, contour, mood). Prefer cell lengths that create interesting cycles against the bar (e.g. a 6-step cell on a 16-step bar rotates).
+
+If hat or ride tracks are listed in the context, interlock with their grid: they define the scene's subdivision feel. Either ride their subdivision exactly (accents aligned with their accents) or fill their gaps (accents where they rest, rest:true where their accents hit) — never drift unrelated to the hat grid."
 `;
 
 exports[`buildArpSystemPrompt — 4/4 byte identity 1/16 vertical 3 voices (snapshot pin) 1`] = `
@@ -54,5 +58,7 @@ The contract:
 
 The cell will be split VERTICALLY across 3 voices: higher-pitched steps land on one instrument, lower-pitched steps on another. Use octave offsets and tone choices to create distinct pitch bands.
 
-Match the requested character (speed feel, density, contour, mood). Prefer cell lengths that create interesting cycles against the bar (e.g. a 6-step cell on a 16-step bar rotates)."
+Match the requested character (speed feel, density, contour, mood). Prefer cell lengths that create interesting cycles against the bar (e.g. a 6-step cell on a 16-step bar rotates).
+
+If hat or ride tracks are listed in the context, interlock with their grid: they define the scene's subdivision feel. Either ride their subdivision exactly (accents aligned with their accents) or fill their gaps (accents where they rest, rest:true where their accents hit) — never drift unrelated to the hat grid."
 `;

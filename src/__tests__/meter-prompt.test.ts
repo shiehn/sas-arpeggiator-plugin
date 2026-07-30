@@ -6,7 +6,8 @@
  * meter option landed, the 4/4 prompt — with the option omitted OR passed
  * explicitly as '4/4' — must still match these snapshots byte-for-byte.
  * Never `--ci`-update these snapshots as part of a meter change; a diff
- * here means 4/4 behavior drifted.
+ * here means 4/4 behavior drifted. Last deliberately revised for the
+ * hat-grid interlock line (2026-07-30, hand-edited snap).
  */
 import { buildArpSystemPrompt } from '../arp-core';
 
