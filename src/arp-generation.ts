@@ -69,6 +69,14 @@ export const DEFAULT_SPLIT: ArpSplit = 'vertical';
 export const ARP_MODEL = 'gemini-3.1-pro-preview';
 export const ARP_MAX_OUTPUT_TOKENS = 4096;
 export const ARP_TEMPERATURE = 0.9;
+/**
+ * The model's only job here is one short repeating cell (4-32 grid steps);
+ * `expandPattern` then does all the harmonic work mechanically — chord tones
+ * are enforced downstream, so extra deliberation buys nothing but latency.
+ * Contrast the ensemble plugin, which omits this and takes the Pro model's
+ * full default thinking for its joint counterpoint call.
+ */
+export const ARP_THINKING_LEVEL = 'LOW' as const;
 
 /** Every arp voice carries the canonical 'arp' role (→ synths-hi/low presets). */
 export const ARP_TRACK_ROLE = 'arp';
@@ -218,6 +226,7 @@ export async function generateArp(
       generationConfig: {
         temperature: ARP_TEMPERATURE,
         maxOutputTokens: ARP_MAX_OUTPUT_TOKENS,
+        thinkingLevel: ARP_THINKING_LEVEL,
       },
     };
     const response = await host.generateWithLLMTools(request);
