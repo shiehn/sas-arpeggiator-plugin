@@ -29,6 +29,7 @@ import {
   GroupCollapseChevron,
   parseLLMNoteResponse,
   promptEnterToGenerate,
+  useRegenerateGuard,
 } from '@signalsandsorcery/plugin-sdk';
 import {
   ARP_RATES,
@@ -118,6 +119,18 @@ function ArpVoiceGroupRow({
   const isGenerating = group.members.some((m) => m.track.isGenerating);
   const generateDisabled = isGenerating || !anchorTrack.prompt.trim();
 
+  // The group Generate drives the anchor directly (never through TrackRow), so
+  // it carries its own overwrite guard: one press rewrites EVERY voice.
+  const regenerate = useRegenerateGuard({
+    hasMidi: anchorTrack.hasMidi,
+    onGenerate: () => ctx.handlers.generate(anchorTrack.handle.id),
+    subject: 'The arp',
+    detail: `All ${group.members.length} ${
+      group.members.length === 1 ? 'voice is' : 'voices are'
+    } rewritten from the new pattern.`,
+    testIdPrefix: `arp-group-regenerate-confirm-${group.groupId}`,
+  });
+
   // Per-voice delete (TrackRow's own ConfirmDialog gates the click): scene-data
   // surgery first — config shrink, anchor handoff when voice 0 goes — then the
   // track + key scrub. Abort on surgery failure so the group is never left
@@ -161,10 +174,7 @@ function ArpVoiceGroupRow({
           value={anchorTrack.prompt}
           placeholder="Describe the arp…"
           onChange={(e) => ctx.handlers.promptChange(anchorTrack.handle.id, e.target.value)}
-          onKeyDown={promptEnterToGenerate(
-            () => ctx.handlers.generate(anchorTrack.handle.id),
-            generateDisabled
-          )}
+          onKeyDown={promptEnterToGenerate(regenerate.request, generateDisabled)}
           className="flex-1 min-w-0 bg-sas-panel border border-sas-border rounded-sm px-2 py-0.5 text-xs text-sas-text placeholder:text-sas-muted/50 focus:border-sas-accent focus:outline-none"
           data-testid="arp-group-prompt"
         />
@@ -234,9 +244,13 @@ function ArpVoiceGroupRow({
           🔗 All
         </button>
         <button
-          onClick={() => ctx.handlers.generate(anchorTrack.handle.id)}
+          onClick={regenerate.request}
           disabled={generateDisabled}
-          title="Regenerate the whole arp"
+          title={
+            anchorTrack.hasMidi
+              ? 'Regenerate the whole arp — replaces the current MIDI'
+              : 'Generate the whole arp'
+          }
           className={`px-2 py-0.5 text-[10px] font-medium rounded-sm border transition-colors ${
             generateDisabled
               ? 'bg-sas-panel border-sas-border text-sas-muted/50 cursor-not-allowed'
@@ -322,6 +336,7 @@ function ArpVoiceGroupRow({
           onCancel={() => setConfirmDelete(false)}
         />
       )}
+      {regenerate.dialog}
     </div>
   );
 }
