@@ -23,7 +23,7 @@ import manifest from './plugin.json';
 class ArpGeneratorPlugin implements GeneratorPlugin {
   readonly id = '@signalsandsorcery/arp-generator';
   readonly displayName = 'Arpeggiator';
-  readonly version = '1.1.0';
+  readonly version = '1.2.0';
   readonly description =
     'Multi-voice arpeggiator — one prompt becomes a repeating arp cell tiled over the scene\'s per-bar chords at 1/4, 1/8, or 1/16, split vertically (pitch bands) or horizontally (alternating bars) across 1-4 voices, each on its own Surge XT track';
   readonly generatorType = 'midi' as const;

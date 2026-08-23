@@ -113,6 +113,16 @@ export async function generateArp(
   services: GenerationServices
 ): Promise<void> {
   const { host } = services;
+  // Progress reporting (SDK 3.11.0): loop stages report before the first item
+  // and after every item, with an honest bar floor of base + span·(done/total).
+  const loopStep = (stage: string, label: string, done: number, total: number, base: number, span: number): void =>
+    services.reportStep?.({
+      stage,
+      label,
+      done,
+      total,
+      percentFloor: base + Math.round((span * done) / Math.max(total, 1)),
+    });
   const scene = services.activeSceneId;
   if (!scene) throw new Error('No active scene — select a scene first.');
   const prompt = (track.prompt ?? '').trim();
@@ -240,8 +250,10 @@ export async function generateArp(
     return null;
   };
 
+  services.reportStep?.({ stage: 'compose', label: 'COMPOSING ARP...' });
   let pattern = await callModel(baseUser);
   if (!pattern) {
+    services.reportStep?.({ stage: 'compose-retry', label: 'REFINING PATTERN...', percentFloor: 45 });
     pattern = await callModel(
       `${baseUser}\n\nYour previous reply was unusable. Call ${SUBMIT_ARP_TOOL_NAME} with 4-32 steps and at least one non-rest step.`
     ).catch(() => null);
@@ -315,13 +327,18 @@ export async function generateArp(
     for (const r of plan.reuse) {
       memberByBucket.set(r.bucketIndex, { engineId: r.engineId, dbId: r.dbId, isNew: false });
     }
+    const createTotal = plan.createBucketIndexes.length;
+    let createDone = 0;
+    if (createTotal > 0) loopStep('create-tracks', 'CREATING VOICE TRACKS', 0, createTotal, 60, 10);
     for (const bucketIndex of plan.createBucketIndexes) {
       const handle = await services.createFamilyTrack(`-v${bucketIndex}`);
       created.push(handle);
       memberByBucket.set(bucketIndex, { engineId: handle.id, dbId: handle.dbId, isNew: true });
+      loopStep('create-tracks', 'CREATING VOICE TRACKS', ++createDone, createTotal, 60, 10);
     }
 
     // Clips FIRST (preset range-analysis reads real pitches), then role + mute.
+    loopStep('write-clips', 'WRITING MIDI', 0, filled.length, 70, 5);
     for (let i = 0; i < filled.length; i++) {
       const member = memberByBucket.get(i)!;
       await host.writeMidiClip(member.engineId, clipFor(filled[i].notes));
@@ -333,9 +350,11 @@ export async function generateArp(
           runtimeState: { ...t.runtimeState, muted: true },
         }));
       }
+      loopStep('write-clips', 'WRITING MIDI', i + 1, filled.length, 70, 5);
     }
 
     // Presets: 🔗 Apply All groups share ONE sound; otherwise per-voice shuffle.
+    loopStep('choose-sounds', 'CHOOSING SOUNDS', 0, filled.length, 75, 15);
     const linkSounds = stored?.linkSounds === true;
     if (linkSounds && services.sound && host.getTrackSound) {
       // Every voice carries the group's shared sound — the anchor's durable
@@ -354,12 +373,14 @@ export async function generateArp(
         for (let i = 0; i < filled.length; i++) {
           const member = memberByBucket.get(i)!;
           // Reused voices keep their sound — it IS the shared sound.
-          if (!member.isNew) continue;
-          try {
-            await services.sound.copySnapshot(member.engineId, snap);
-          } catch {
-            /* non-fatal — default patch */
+          if (member.isNew) {
+            try {
+              await services.sound.copySnapshot(member.engineId, snap);
+            } catch {
+              /* non-fatal — default patch */
+            }
           }
+          loopStep('choose-sounds', 'CHOOSING SOUNDS', i + 1, filled.length, 75, 15);
         }
       }
     } else {
@@ -367,21 +388,24 @@ export async function generateArp(
       const appliedNames: string[] = [];
       for (let i = 0; i < filled.length; i++) {
         const member = memberByBucket.get(i)!;
-        if (!member.isNew) continue;
-        try {
-          // Pass the arp prompt so the host's semantic (vector-proximity)
-          // retrieval picks by timbre instead of random-within-category.
-          const result = await host.shufflePreset(member.engineId, appliedNames, {
-            description: prompt,
-          });
-          appliedNames.push(result.presetName);
-        } catch {
-          /* non-fatal — default patch */
+        if (member.isNew) {
+          try {
+            // Pass the arp prompt so the host's semantic (vector-proximity)
+            // retrieval picks by timbre instead of random-within-category.
+            const result = await host.shufflePreset(member.engineId, appliedNames, {
+              description: prompt,
+            });
+            appliedNames.push(result.presetName);
+          } catch {
+            /* non-fatal — default patch */
+          }
         }
+        loopStep('choose-sounds', 'CHOOSING SOUNDS', i + 1, filled.length, 75, 15);
       }
     }
 
     // Metas LAST — a mid-flight failure above leaves the OLD group intact.
+    services.reportStep?.({ stage: 'save', label: 'SAVING PARTS...', percentFloor: 92 });
     for (let i = 0; i < filled.length; i++) {
       const member = memberByBucket.get(i)!;
       const meta: ArpVoiceMeta = {
