@@ -28,6 +28,7 @@ import type {
   LLMFunctionDeclaration,
 } from '@signalsandsorcery/plugin-sdk';
 import {
+  LLM_MODEL,
   formatConcurrentTracks,
   panelClipEndSeconds,
   panelMeter,
@@ -65,8 +66,8 @@ export const ARP_MAX_TRACKS = 12;
 export const DEFAULT_VOICE_COUNT = 2;
 export const DEFAULT_RATE: ArpRate = '1/16';
 export const DEFAULT_SPLIT: ArpSplit = 'vertical';
-/** The generation model — tools-capable; matches the platform's BEST tier. */
-export const ARP_MODEL = 'gemini-3.1-pro-preview';
+/** The generation model: the platform's BEST role — the host maps it to the current Gemini Pro id. */
+export const ARP_MODEL = LLM_MODEL.BEST;
 export const ARP_MAX_OUTPUT_TOKENS = 4096;
 export const ARP_TEMPERATURE = 0.9;
 /**
